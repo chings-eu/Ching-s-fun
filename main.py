@@ -14,33 +14,16 @@ class FunctionInputs(AutomateBase):
     https://docs.pydantic.dev/latest/usage/models/
     """
 
-    # In this exercise, we will move rules to an external source so not to hardcode them.
-    spreadsheet_url: str = Field(
-        title="Spreadsheet URL",
-        description="This is the URL of the spreadsheet to check. It should be a TSV format data source.",
+    comment_phrase: str = Field(
+        title="Comment Phrase",
+        description="This phrase will be added to a random model element.",
     )
-
-def read_rules_from_spreadsheet(url):
-    """Reads a TSV file from a provided URL and returns a DataFrame.
-
-    Args:
-        url (str): The URL to the TSV file.
-
-    Returns:
-        DataFrame: Pandas DataFrame containing the TSV data.
-    """
-    try:
-        # Since the output is a TSV, we use `pd.read_csv` with `sep='\t'` to specify tab-separated values.
-        return pd.read_csv(url, sep="\t")
-    except Exception as e:
-        print(f"Failed to read the TSV from the URL: {e}")
-        return None
 
 def automate_function(
     automate_context: AutomationContext,
     function_inputs: FunctionInputs,
 ) -> None:
-    """This version of the function will add a check for the new provide inputs.
+    """This is an example Speckle Automate function.
 
     Args:
         automate_context: A context helper object, that carries relevant information
@@ -53,22 +36,39 @@ def automate_function(
     # the context provides a convenient way, to receive the triggering version
     version_root_object = automate_context.receive_version()
 
-    # We can continue to work with a flattened list of objects.
-    flat_list_of_objects = list(flatten_base(version_root_object))
+    flat_list_of_objects = flatten_base(version_root_object)
 
-    # read the rules from the spreadsheet
-    rules = read_rules_from_spreadsheet(function_inputs.spreadsheet_url)
+    # filter the list to only include objects that are displayable.
+    # this is a simple example, that checks if the object has a displayValue
+    displayable_objects = [
+        speckle_object
+        for speckle_object in flat_list_of_objects
+        if (
+            getattr(speckle_object, "displayValue", None)
+            or getattr(speckle_object, "@displayValue", None)
+        )
+        and getattr(speckle_object, "id", None) is not None
+    ]
 
-    # apply the rules to the objects
-    apply_rules_to_objects(flat_list_of_objects, rules, automate_context)
+    if len(displayable_objects) == 0:
+        automate_context.mark_run_failed(
+            "Automation failed: No displayable objects found."
+        )
+
+    else:
+        # select a random object from the list
+        random_object = random.choice(displayable_objects)
+
+        automate_context.attach_info_to_objects(
+            category="Selected Object",
+            object_ids=[random_object.id],
+            message=function_inputs.comment_phrase,
+        )
+
+        automate_context.mark_run_success("Added a comment to a random object.")
 
     # set the automation context view, to the original model / version view
     automate_context.set_context_view()
-
-    # report success
-    automate_context.mark_run_success(
-        f"Successfully applied rules to {len(flat_list_of_objects)} objects."
-    )
 
 # make sure to call the function with the executor
 if __name__ == "__main__":
